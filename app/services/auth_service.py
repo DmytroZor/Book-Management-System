@@ -39,3 +39,4 @@ async def create_user(db: AsyncSession, username: str, password: str, email: str
     await db.commit()
     await db.refresh(user)
     return user
+

@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Request
-from typing import List, Optional, Dict, Any
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Request, Query
+from typing import List, Optional, Dict, Any, Literal
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.schemas.book_schema import BookCreate, BookOut, BookUpdate, SortField, SortOrder, MessageResponse, Genre
@@ -10,13 +10,10 @@ from app.limiter import limiter
 from fastapi.responses import StreamingResponse
 import csv, io, json
 from pydantic import ValidationError, BaseModel
-from fastapi import FastAPI
-from fastapi.security import HTTPBearer, OAuth2PasswordBearer
 from app.routers.auth import get_current_user
-from app.errors import NotFoundError
+from app.errors import NotFoundError, AppError
 
 router = APIRouter(prefix="/books", tags=["Books"])
-
 
 def book_to_out(book) -> BookOut:
 
@@ -44,6 +41,40 @@ def book_to_out(book) -> BookOut:
     return BookOut.model_validate(data)
 
 
+
+@router.get("/export")
+async def export_books(
+    format: Literal["json", "csv"] = Query("json"),  # тільки дозволені значення
+    db: AsyncSession = Depends(get_db)
+):
+    books = await book_service.get_books(db, limit=10000, offset=0)
+    rows = []
+    for b in books:
+        rows.append({
+            "id": b.id,
+            "title": b.title,
+            "genre": b.genre,
+            "published_year": b.published_year,
+            "authors": ",".join([a.name for a in b.authors])
+        })
+
+    if format == "json":
+        data = json.dumps(rows, ensure_ascii=False, indent=2)
+        return StreamingResponse(
+            io.BytesIO(data.encode("utf-8")),
+            media_type="application/json",
+            headers={"Content-Disposition": "attachment; filename=books.json"}
+        )
+    else:
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=["id", "title", "genre", "published_year", "authors"])
+        writer.writeheader()
+        writer.writerows(rows)
+        return StreamingResponse(
+            io.BytesIO(output.getvalue().encode("utf-8")),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=books.csv"}
+        )
 
 @router.post("/", response_model=BookOut, status_code=201)
 async def create_book(book: BookCreate, db: AsyncSession = Depends(get_db), user=Depends(get_current_user)):
@@ -101,7 +132,7 @@ async def update_book(book_id: int, payload: BookUpdate, db: AsyncSession = Depe
     data = payload.model_dump(exclude_unset=True)
     updated = await book_service.update_book(db, book_id, data)
     if not updated:
-        raise HTTPException(status_code=404, detail="Book not found")
+        raise NotFoundError("Book", book_id)
     return book_to_out(updated)
 
 
@@ -109,46 +140,9 @@ async def update_book(book_id: int, payload: BookUpdate, db: AsyncSession = Depe
 async def delete_book(book_id: int, db: AsyncSession = Depends(get_db), user=Depends(get_current_user)):
     ok = await book_service.delete_book(db, book_id)
     if not ok:
-        raise HTTPException(status_code=404, detail="Book not found")
+        raise NotFoundError("Book", book_id)
     return MessageResponse(message="Book deleted")
 
-
-# @router.post("/import", response_model=MessageResponse)
-# async def import_books(
-#         file: UploadFile = File(...),
-#         db: AsyncSession = Depends(get_db),
-#         user = Depends(get_current_user)
-# ):
-#     content = await file.read()
-#     if file.filename.endswith(".json"):
-#         books_data = json.loads(content)
-#     elif file.filename.endswith(".csv"):
-#         reader = csv.DictReader(io.StringIO(content.decode()))
-#         books_data = [row for row in reader]
-#     else:
-#         raise HTTPException(status_code=400, detail="Unsupported file format")
-#
-#
-#     count = 0
-#     for raw in books_data:
-#         try:
-#
-#             if isinstance(raw.get("authors"), str):
-#                 authors = [a.strip() for a in raw["authors"].split(",") if a.strip()]
-#             else:
-#                 authors = raw.get("authors") or []
-#             payload = BookCreate(
-#                 title=raw["title"],
-#                 genre=raw["genre"],
-#                 published_year=int(raw["published_year"]),
-#                 authors=authors
-#             )
-#         except Exception as e:
-#             continue
-#         await book_service.create_book(db, payload)
-#         count += 1
-#
-#     return MessageResponse(message=f"Imported {count} books")
 
 
 class BookImportPayload(BaseModel):
@@ -171,7 +165,7 @@ async def import_books_optimized(
         reader = csv.DictReader(io.StringIO(content.decode()))
         raw_data = [row for row in reader]
     else:
-        raise HTTPException(status_code=400, detail="Unsupported file format")
+        raise AppError("Unsupported file format", status_code=400)
 
     for raw in raw_data:
         try:
@@ -186,10 +180,9 @@ async def import_books_optimized(
 
     if books_data:
         try:
-
             count = await book_service.bulk_create_books(db, books_data)
         except Exception as e:
-            raise HTTPException(status_code=500, detail="Failed to save books to database")
+            raise AppError("Failed to save books to database", status_code=500, details={"reason": str(e)})
     else:
         count = 0
 
@@ -201,27 +194,4 @@ async def import_books_optimized(
     }
 
 
-@router.get("/export")
-async def export_books(format: str = Query("json", regex="^(json|csv)$"), db: AsyncSession = Depends(get_db)):
-    books = await book_service.get_books(db, limit=10000, offset=0)  # export up to some reasonable limit
-    rows = []
-    for b in books:
-        rows.append({
-            "id": b.id,
-            "title": b.title,
-            "genre": b.genre,
-            "published_year": b.published_year,
-            "authors": ",".join([a.name for a in b.authors])
-        })
 
-    if format == "json":
-        data = json.dumps(rows, ensure_ascii=False, indent=2)
-        return StreamingResponse(io.BytesIO(data.encode("utf-8")), media_type="application/json",
-                                 headers={"Content-Disposition": "attachment; filename=books.json"})
-    else:
-        output = io.StringIO()
-        writer = csv.DictWriter(output, fieldnames=["id", "title", "genre", "published_year", "authors"])
-        writer.writeheader()
-        writer.writerows(rows)
-        return StreamingResponse(io.BytesIO(output.getvalue().encode("utf-8")), media_type="text/csv",
-                                 headers={"Content-Disposition": "attachment; filename=books.csv"})

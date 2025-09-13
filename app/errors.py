@@ -1,4 +1,3 @@
-# app/errors.py
 from fastapi import status
 
 class AppError(Exception):
