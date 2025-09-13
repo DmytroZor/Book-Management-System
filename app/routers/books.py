@@ -1,34 +1,26 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Request, Query
-from typing import List, Optional, Dict, Any, Literal
+from fastapi import APIRouter, Depends, UploadFile, Request, Query, status
+from typing import List, Optional, Literal
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
-from app.schemas.book_schema import BookCreate, BookOut, BookUpdate, SortField, SortOrder, MessageResponse, Genre
+from app.schemas.book_schema import BookCreate, BookOut, BookUpdate, SortField, SortOrder, MessageResponse, Genre, AuthorOut
 from app.services import book_service
-from app.services.auth_service import decode_token
-from app.services.auth_service import get_user_by_username
 from app.limiter import limiter
 from fastapi.responses import StreamingResponse
 import csv, io, json
-from pydantic import ValidationError, BaseModel
+from pydantic import BaseModel
 from app.routers.auth import get_current_user
-from app.errors import NotFoundError, AppError
+from app.errors import NotFoundError, AppError, UnauthorizedError
 
 router = APIRouter(prefix="/books", tags=["Books"])
 
 def book_to_out(book) -> BookOut:
-
     authors = []
     if getattr(book, "authors", None):
-
-        authors = [a.name for a in book.authors]
-
+        authors = [AuthorOut(id=a.id, name=a.name) for a in book.authors]
 
     genre_value = getattr(book, "genre", None)
-    try:
-
-        genre_value = genre_value.value if hasattr(genre_value, "value") else genre_value
-    except Exception:
-        pass
+    if hasattr(genre_value, "value"):
+        genre_value = genre_value.value
 
     data = {
         "id": int(book.id),
@@ -39,6 +31,7 @@ def book_to_out(book) -> BookOut:
     }
 
     return BookOut.model_validate(data)
+
 
 
 
@@ -149,49 +142,51 @@ class BookImportPayload(BaseModel):
     books: List[BookCreate]
 
 
-@router.post("/import", response_model=Dict[str, Any])
-async def import_books_optimized(
-        file: UploadFile = File(...),
-        db: AsyncSession = Depends(get_db),
-        user=Depends(get_current_user)
+@router.post("/import")
+async def import_books(
+    file: UploadFile,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),  # авторизація
 ):
-    content = await file.read()
-    books_data = []
-    errors = []
 
-    if file.filename.endswith(".json"):
-        raw_data = json.loads(content)
-    elif file.filename.endswith(".csv"):
-        reader = csv.DictReader(io.StringIO(content.decode()))
-        raw_data = [row for row in reader]
-    else:
-        raise AppError("Unsupported file format", status_code=400)
+    if not current_user:
+        raise UnauthorizedError()
 
-    for raw in raw_data:
-        try:
-            if isinstance(raw.get("authors"), str):
-                raw["authors"] = [a.strip() for a in raw["authors"].split(",") if a.strip()]
+    try:
+        if file.filename.endswith(".json"):
+            data = json.loads((await file.read()).decode("utf-8"))
 
-            books_data.append(BookCreate(**raw))
-        except ValidationError as e:
-            errors.append({"record": raw, "error": e.errors()})
-        except Exception as e:
-            errors.append({"record": raw, "error": str(e)})
+        elif file.filename.endswith(".csv"):
+            content = (await file.read()).decode("utf-8").splitlines()
+            reader = csv.DictReader(content)
+            data = [dict(row) for row in reader]
 
-    if books_data:
-        try:
-            count = await book_service.bulk_create_books(db, books_data)
-        except Exception as e:
-            raise AppError("Failed to save books to database", status_code=500, details={"reason": str(e)})
-    else:
-        count = 0
 
-    return {
-        "message": f"Successfully imported {count} books. {len(errors)} records failed to import.",
-        "imported_count": count,
-        "failed_count": len(errors),
-        "errors": errors
-    }
+            for d in data:
+                if "authors" in d and isinstance(d["authors"], str):
+                    d["authors"] = [
+                        a.strip() for a in d["authors"].split(";") if a.strip()
+                    ]
+
+        else:
+            raise AppError(
+                message="Unsupported file format. Only JSON and CSV are allowed.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+                details={"filename": file.filename}
+            )
+
+        books = await book_service.bulk_create_books(db, data)
+        return {"imported": len(books)}
+
+    except AppError:
+
+        raise
+    except Exception as e:
+        raise AppError(
+            message="Failed to save books to database",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            details={"reason": str(e)}
+        )
 
 
 

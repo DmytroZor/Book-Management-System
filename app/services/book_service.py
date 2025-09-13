@@ -3,6 +3,8 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 from app.models import Book, Author
 from typing import List, Optional
+from app.errors import AppError
+from fastapi import status
 
 
 async def create_book(db: AsyncSession, title: str, genre: str, published_year: int, authors: List[str]):
@@ -105,3 +107,62 @@ async def delete_book(db: AsyncSession, book_id: int) -> bool:
     await db.delete(book)
     await db.commit()
     return True
+
+async def bulk_create_books(db: AsyncSession, books_data: list[dict]):
+    if not books_data:
+        raise AppError(
+            message="No books provided for import",
+            status_code=status.HTTP_400_BAD_REQUEST
+        )
+
+    created_books = []
+
+    try:
+        for data in books_data:
+            # 🔹 Нормалізація published_year
+            published_year = data.get("published_year")
+            if published_year is not None:
+                try:
+                    published_year = int(published_year)
+                except (ValueError, TypeError):
+                    raise AppError(
+                        message=f"Invalid published_year: {published_year}",
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        details={"book": data}
+                    )
+
+            # 🔹 Автори (рядок → список)
+            authors = []
+            for name in data.get("authors", []):
+                result = await db.execute(select(Author).where(Author.name == name))
+                author = result.scalar_one_or_none()
+                if not author:
+                    author = Author(name=name)
+                    db.add(author)
+                    await db.flush()
+                authors.append(author)
+
+            # 🔹 Створюємо книгу
+            book = Book(
+                title=data["title"],
+                genre=data.get("genre"),
+                published_year=published_year,
+                authors=authors
+            )
+            db.add(book)
+            created_books.append(book)
+
+        await db.commit()
+        for b in created_books:
+            await db.refresh(b)
+
+    except AppError:
+        raise
+    except Exception as e:
+        raise AppError(
+            message="Database error while bulk creating books",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            details={"reason": str(e)}
+        )
+
+    return created_books
