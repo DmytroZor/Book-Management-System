@@ -13,7 +13,7 @@ from pydantic import ValidationError, BaseModel
 from fastapi import FastAPI
 from fastapi.security import HTTPBearer, OAuth2PasswordBearer
 from app.routers.auth import get_current_user
-
+from app.errors import NotFoundError
 
 router = APIRouter(prefix="/books", tags=["Books"])
 
@@ -91,7 +91,7 @@ async def list_books(
 async def get_book(book_id: int, db: AsyncSession = Depends(get_db)):
     book = await book_service.get_book_by_id(db, book_id)
     if not book:
-        raise HTTPException(status_code=404, detail="Book not found")
+        raise NotFoundError("Book", book_id)
     return book_to_out(book)
 
 
