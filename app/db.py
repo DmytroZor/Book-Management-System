@@ -3,11 +3,10 @@ from app.config import settings
 
 engine = create_async_engine(settings.database_url, echo = True)
 AsyncSessionLocal = async_sessionmaker(
-    bind = engine,
+    bind=engine,
     class_=AsyncSession,
     expire_on_commit=False,
-    autoflush= False,
-    autocommit = False
+    autoflush=False
 )
 
 async def get_db():
