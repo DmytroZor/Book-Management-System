@@ -30,7 +30,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSessi
     return {"access_token": token, "token_type": "bearer"}
 
 
-# dependency: get current user from Bearer token
+
 async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)):
     try:
         payload = auth_service.decode_token(token)

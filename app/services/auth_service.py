@@ -1,6 +1,6 @@
 from passlib.hash import bcrypt
 from jose import jwt, JWTError
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from app.config import settings
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -16,7 +16,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_access_token(data: dict, expires_seconds: int | None = None) -> str:
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(seconds=(expires_seconds or settings.jwt_expiration))
+    expire = datetime.now(timezone.utc) + timedelta(seconds=(expires_seconds or settings.jwt_expiration))
     to_encode.update({"exp": expire})
     encoded = jwt.encode(to_encode, settings.jwt_secret, algorithm=settings.jwt_algorithm)
     return encoded

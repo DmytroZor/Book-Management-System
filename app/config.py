@@ -9,4 +9,5 @@ class Settings(BaseSettings):
     class Config:
         env_file = Path(__file__).resolve().parent.parent/".env"
 
+
 settings = Settings()

@@ -2,6 +2,7 @@ from sqlalchemy import Column, Table, ForeignKey, String, Integer, Boolean
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.types import Enum as SQLEnum
 from app.schemas.book_schema import Genre
+
 Base = declarative_base()
 
 book_authors = Table(
@@ -10,6 +11,7 @@ book_authors = Table(
     Column("book_id", ForeignKey("books.id"), primary_key=True),
     Column("author_id", ForeignKey("authors.id"), primary_key=True)
 )
+
 
 class Book(Base):
     __tablename__ = "books"
@@ -20,12 +22,14 @@ class Book(Base):
     published_year = Column(Integer, nullable=False)
     authors = relationship("Author", secondary=book_authors, back_populates="books")
 
+
 class Author(Base):
     __tablename__ = "authors"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, nullable=False)
     books = relationship("Book", secondary=book_authors, back_populates="authors")
+
 
 class User(Base):
     __tablename__ = 'users'

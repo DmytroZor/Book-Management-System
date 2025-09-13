@@ -18,8 +18,10 @@ async def create_book(db: AsyncSession, title: str, genre: str, published_year: 
     book = Book(title=title, genre=genre, published_year=published_year, authors=author_objs)
     db.add(book)
     await db.commit()
-    await db.refresh(book)
-    return book
+
+    q = await db.execute(select(Book).options(selectinload(Book.authors)).where(Book.id == book.id))
+    book_with_authors = q.scalar_one()
+    return book_with_authors
 
 
 async def get_books(
