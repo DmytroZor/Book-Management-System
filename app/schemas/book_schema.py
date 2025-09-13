@@ -23,7 +23,8 @@ class BookBase(BaseModel):
     published_year: int = Field(..., ge=1800, le=datetime.datetime.now().year)
 
     @field_validator("title")
-    def not_blank(self, v):
+    @classmethod
+    def not_blank(cls, v):
         if not v or not v.strip():
             raise ValueError("title must not be empty")
         return v
@@ -37,9 +38,15 @@ class BookUpdate(BaseModel):
     published_year: int | None
     authors: List[str] | None
 
+class AuthorOut(BaseModel):
+    name: str
+
+    class Config:
+        from_attributes = True
+
 class BookOut(BookBase):
     id: int
-    authors: List[str]
+    authors: List[AuthorOut]
 
     class Config:
         orm_mode = True
