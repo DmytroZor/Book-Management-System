@@ -7,6 +7,7 @@ def test_password_hash_and_verify():
     assert auth_service.verify_password(password, hashed)
     assert not auth_service.verify_password("wrongpass", hashed)
 
+
 def test_create_and_decode_token():
     data = {"sub": "testuser"}
     token = auth_service.create_access_token(data, expires_seconds=60)

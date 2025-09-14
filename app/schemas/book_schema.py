@@ -39,10 +39,10 @@ class BookCreate(BookBase):
 
 
 class BookUpdate(BaseModel):
-    title: str | None
-    genre: Genre | None
-    published_year: int | None
-    authors: List[str] | None
+    title: str | None = None
+    genre: Genre | None = None
+    published_year: int | None = None
+    authors: List[str] | None = None
 
 
 class AuthorOut(BaseModel):
@@ -57,7 +57,6 @@ class BookOut(BookBase):
     authors: List[AuthorOut]
 
     model_config = {"from_attributes": True}
-
 
 
 class MessageResponse(BaseModel):

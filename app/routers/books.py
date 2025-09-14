@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, UploadFile, Request, Query, status
 from typing import List, Optional, Literal
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.db import get_db
+from sqlalchemy.ext.asyncio import AsyncConnection
+from app.db import get_conn
 from app.schemas.book_schema import BookCreate, BookOut, BookUpdate, SortField, SortOrder, MessageResponse, Genre, AuthorOut
 from app.services import book_service
 from app.limiter import limiter
@@ -13,42 +13,41 @@ from app.errors import NotFoundError, AppError, UnauthorizedError
 
 router = APIRouter(prefix="/books", tags=["Books"])
 
-def book_to_out(book) -> BookOut:
+
+def book_to_out(book: dict) -> BookOut:
     authors = []
-    if getattr(book, "authors", None):
-        authors = [AuthorOut(id=a.id, name=a.name) for a in book.authors]
-
-    genre_value = getattr(book, "genre", None)
-    if hasattr(genre_value, "value"):
-        genre_value = genre_value.value
-
+    for a in book.get("authors", []):
+        if isinstance(a, dict):
+            aid = int(a.get("id") or 0)
+            name = a.get("name") or ""
+        else:
+            aid = 0
+            name = str(a)
+        authors.append({"id": aid, "name": name})
     data = {
-        "id": int(book.id),
-        "title": book.title,
-        "genre": genre_value,
-        "published_year": int(book.published_year),
+        "id": int(book["id"]),
+        "title": book["title"],
+        "genre": book.get("genre"),
+        "published_year": int(book["published_year"]) if book.get("published_year") is not None else None,
         "authors": authors,
     }
-
     return BookOut.model_validate(data)
-
-
 
 
 @router.get("/export")
 async def export_books(
-    format: Literal["json", "csv"] = Query("json"),  # тільки дозволені значення
-    db: AsyncSession = Depends(get_db)
+    format: Literal["json", "csv"] = Query("json"),
+    conn: AsyncConnection = Depends(get_conn)
 ):
-    books = await book_service.get_books(db, limit=10000, offset=0)
+    books = await book_service.get_books(conn, limit=10000, offset=0)
     rows = []
     for b in books:
         rows.append({
-            "id": b.id,
-            "title": b.title,
-            "genre": b.genre,
-            "published_year": b.published_year,
-            "authors": ",".join([a.name for a in b.authors])
+            "id": b["id"],
+            "title": b["title"],
+            "genre": b["genre"],
+            "published_year": b["published_year"],
+            "authors": ";".join([a["name"] for a in b.get("authors", [])])
         })
 
     if format == "json":
@@ -69,16 +68,17 @@ async def export_books(
             headers={"Content-Disposition": "attachment; filename=books.csv"}
         )
 
+
 @router.post("/", response_model=BookOut, status_code=201)
-async def create_book(book: BookCreate, db: AsyncSession = Depends(get_db), user=Depends(get_current_user)):
+async def create_book(book: BookCreate, conn: AsyncConnection = Depends(get_conn), user=Depends(get_current_user)):
     created = await book_service.create_book(
-        db,
+        conn,
         title=book.title,
-        genre=book.genre,
+        genre=book.genre.value if hasattr(book.genre, "value") else book.genre,
         published_year=book.published_year,
         authors=book.authors,
     )
-    return created
+    return book_to_out(created)
 
 
 @router.get("/", response_model=List[BookOut])
@@ -94,10 +94,10 @@ async def list_books(
         order: SortOrder = SortOrder.asc,
         skip: int = Query(0, ge=0),
         limit: int = Query(10, ge=1, le=50),
-        db: AsyncSession = Depends(get_db)
+        conn: AsyncConnection = Depends(get_conn)
 ):
     books = await book_service.get_books(
-        db,
+        conn,
         title=title,
         author=author,
         genre=genre.value if genre else None,
@@ -112,30 +112,33 @@ async def list_books(
 
 
 @router.get("/{book_id}", response_model=BookOut)
-async def get_book(book_id: int, db: AsyncSession = Depends(get_db)):
-    book = await book_service.get_book_by_id(db, book_id)
+async def get_book(book_id: int, conn: AsyncConnection = Depends(get_conn)):
+    book = await book_service.get_book_by_id(conn, book_id)
     if not book:
         raise NotFoundError("Book", book_id)
     return book_to_out(book)
 
 
 @router.put("/{book_id}", response_model=BookOut)
-async def update_book(book_id: int, payload: BookUpdate, db: AsyncSession = Depends(get_db),
+async def update_book(book_id: int, payload: BookUpdate, conn: AsyncConnection = Depends(get_conn),
                       user=Depends(get_current_user)):
     data = payload.model_dump(exclude_unset=True)
-    updated = await book_service.update_book(db, book_id, data)
+    if not data:
+        raise AppError(message="No fields provided for update", status_code=status.HTTP_400_BAD_REQUEST, details={"book_id": book_id})
+    if "genre" in data and data["genre"] is not None:
+        data["genre"] = data["genre"].value if hasattr(data["genre"], "value") else data["genre"]
+    updated = await book_service.update_book(conn, book_id, data)
     if not updated:
         raise NotFoundError("Book", book_id)
     return book_to_out(updated)
 
 
 @router.delete("/{book_id}", response_model=MessageResponse)
-async def delete_book(book_id: int, db: AsyncSession = Depends(get_db), user=Depends(get_current_user)):
-    ok = await book_service.delete_book(db, book_id)
+async def delete_book(book_id: int, conn: AsyncConnection = Depends(get_conn), user=Depends(get_current_user)):
+    ok = await book_service.delete_book(conn, book_id)
     if not ok:
         raise NotFoundError("Book", book_id)
     return MessageResponse(message="Book deleted")
-
 
 
 class BookImportPayload(BaseModel):
@@ -145,10 +148,9 @@ class BookImportPayload(BaseModel):
 @router.post("/import")
 async def import_books(
     file: UploadFile,
-    db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user),  # авторизація
+    conn: AsyncConnection = Depends(get_conn),
+    current_user: dict = Depends(get_current_user),
 ):
-
     if not current_user:
         raise UnauthorizedError()
 
@@ -161,12 +163,9 @@ async def import_books(
             reader = csv.DictReader(content)
             data = [dict(row) for row in reader]
 
-
             for d in data:
                 if "authors" in d and isinstance(d["authors"], str):
-                    d["authors"] = [
-                        a.strip() for a in d["authors"].split(";") if a.strip()
-                    ]
+                    d["authors"] = [a.strip() for a in d["authors"].split(";") if a.strip()]
 
         else:
             raise AppError(
@@ -175,11 +174,10 @@ async def import_books(
                 details={"filename": file.filename}
             )
 
-        books = await book_service.bulk_create_books(db, data)
+        books = await book_service.bulk_create_books(conn, data)
         return {"imported": len(books)}
 
     except AppError:
-
         raise
     except Exception as e:
         raise AppError(
@@ -187,6 +185,3 @@ async def import_books(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             details={"reason": str(e)}
         )
-
-
-
