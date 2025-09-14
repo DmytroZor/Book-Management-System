@@ -6,13 +6,15 @@ import logging
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from app.errors import AppError
+from pathlib import Path
+
+description_file = Path(__file__).parent / "description.md"
+description_text = description_file.read_text()
 
 app = FastAPI(
-    title='Book Management System',
-    description= '''# Book-Management-System
-    ## Book-Management-System
-    ### Book-Management-System'''
-
+    title="Book Management System",
+    description=description_text,
+    version="0.1.0"
 )
 
 
