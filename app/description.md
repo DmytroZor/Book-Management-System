@@ -4,11 +4,12 @@ REST API for managing  of books.
 
 ## Functional Overview
 
-- **Create Book**  add a new book to the library.  
-- **List Books**  retrieve a list of all books.  
-- **Get Book Details**  retrieve detailed information about a specific book.  
-- **Update Book**  modify information of an existing book.  
-- **Delete Book**  remove a book from the library.
+- **Create Book**   add a new book to the library.  
+- **List Books**   retrieve a list of all books.
+- **Update Book**   modify information of an existing book.  
+- **Delete Book**   remove a book from the library.  
+- **Import Books**   upload books in JSON or CSV format.  
+- **Export Books**   download books in JSON or CSV format.
  
 ###
 **Book object fields:**
