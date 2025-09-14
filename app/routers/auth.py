@@ -1,18 +1,25 @@
+# app/routers/auth.py
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncConnection
+from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
+from jose import JWTError
+
 from app.db import get_conn
 from app.schemas.auth_schema import UserCreate, Token
 from app.services import auth_service
-from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
-from jose import JWTError
 from app.errors import AppError, UnauthorizedError, NotFoundError
+from app.routers.utils import get_common_responses
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
-
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 
-@router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register",
+    response_model=Token,
+    status_code=status.HTTP_201_CREATED,
+    responses=(lambda: {**get_common_responses(), 400: {"model": __import__("app.schemas.error_schema", fromlist=["ErrorResponse"]).ErrorResponse, "description": "Username already registered"}})()
+)
 async def register(user: UserCreate, conn: AsyncConnection = Depends(get_conn)):
     existing = await auth_service.get_user_by_username(conn, user.username)
     if existing:
@@ -23,7 +30,11 @@ async def register(user: UserCreate, conn: AsyncConnection = Depends(get_conn)):
     return {"access_token": token, "token_type": "bearer"}
 
 
-@router.post("/login", response_model=Token)
+@router.post(
+    "/login",
+    response_model=Token,
+    responses=get_common_responses()
+)
 async def login(form_data: OAuth2PasswordRequestForm = Depends(), conn: AsyncConnection = Depends(get_conn)):
     user = await auth_service.get_user_by_username(conn, form_data.username)
     if not user or not auth_service.verify_password(form_data.password, user["hashed_password"]):

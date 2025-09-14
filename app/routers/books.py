@@ -1,15 +1,20 @@
 from fastapi import APIRouter, Depends, UploadFile, Request, Query, status
 from typing import List, Optional, Literal
 from sqlalchemy.ext.asyncio import AsyncConnection
-from app.db import get_conn
-from app.schemas.book_schema import BookCreate, BookOut, BookUpdate, SortField, SortOrder, MessageResponse, Genre, AuthorOut
-from app.services import book_service
-from app.limiter import limiter
 from fastapi.responses import StreamingResponse
-import csv, io, json
 from pydantic import BaseModel
+import csv, io, json
+
+from app.db import get_conn
+from app.schemas.book_schema import (
+    BookCreate, BookOut, BookUpdate, SortField, SortOrder,
+    MessageResponse, Genre
+)
+from app.services import book_service
 from app.routers.auth import get_current_user
 from app.errors import NotFoundError, AppError, UnauthorizedError
+from app.limiter import limiter
+from app.routers.utils import get_common_responses
 
 router = APIRouter(prefix="/books", tags=["Books"])
 
@@ -34,7 +39,10 @@ def book_to_out(book: dict) -> BookOut:
     return BookOut.model_validate(data)
 
 
-@router.get("/export")
+@router.get(
+    "/export",
+    responses=get_common_responses(),
+)
 async def export_books(
     format: Literal["json", "csv"] = Query("json"),
     conn: AsyncConnection = Depends(get_conn)
@@ -69,7 +77,12 @@ async def export_books(
         )
 
 
-@router.post("/", response_model=BookOut, status_code=201)
+@router.post(
+    "/",
+    response_model=BookOut,
+    status_code=201,
+    responses=get_common_responses(),
+)
 async def create_book(book: BookCreate, conn: AsyncConnection = Depends(get_conn), user=Depends(get_current_user)):
     created = await book_service.create_book(
         conn,
@@ -81,7 +94,11 @@ async def create_book(book: BookCreate, conn: AsyncConnection = Depends(get_conn
     return book_to_out(created)
 
 
-@router.get("/", response_model=List[BookOut])
+@router.get(
+    "/",
+    response_model=List[BookOut],
+    responses=get_common_responses(),
+)
 @limiter.limit("20/minute")
 async def list_books(
         request: Request,
@@ -111,7 +128,11 @@ async def list_books(
     return [book_to_out(b) for b in books]
 
 
-@router.get("/{book_id}", response_model=BookOut)
+@router.get(
+    "/{book_id}",
+    response_model=BookOut,
+    responses=get_common_responses(),
+)
 async def get_book(book_id: int, conn: AsyncConnection = Depends(get_conn)):
     book = await book_service.get_book_by_id(conn, book_id)
     if not book:
@@ -119,7 +140,11 @@ async def get_book(book_id: int, conn: AsyncConnection = Depends(get_conn)):
     return book_to_out(book)
 
 
-@router.put("/{book_id}", response_model=BookOut)
+@router.put(
+    "/{book_id}",
+    response_model=BookOut,
+    responses=get_common_responses(),
+)
 async def update_book(book_id: int, payload: BookUpdate, conn: AsyncConnection = Depends(get_conn),
                       user=Depends(get_current_user)):
     data = payload.model_dump(exclude_unset=True)
@@ -133,7 +158,11 @@ async def update_book(book_id: int, payload: BookUpdate, conn: AsyncConnection =
     return book_to_out(updated)
 
 
-@router.delete("/{book_id}", response_model=MessageResponse)
+@router.delete(
+    "/{book_id}",
+    response_model=MessageResponse,
+    responses=get_common_responses(),
+)
 async def delete_book(book_id: int, conn: AsyncConnection = Depends(get_conn), user=Depends(get_current_user)):
     ok = await book_service.delete_book(conn, book_id)
     if not ok:
@@ -145,7 +174,10 @@ class BookImportPayload(BaseModel):
     books: List[BookCreate]
 
 
-@router.post("/import")
+@router.post(
+    "/import",
+    responses=get_common_responses(),
+)
 async def import_books(
     file: UploadFile,
     conn: AsyncConnection = Depends(get_conn),
