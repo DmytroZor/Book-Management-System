@@ -7,7 +7,13 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from app.errors import AppError
 
-app = FastAPI()
+app = FastAPI(
+    title='Book Management System',
+    description= '''# Book-Management-System
+    ## Book-Management-System
+    ### Book-Management-System'''
+
+)
 
 
 @app.exception_handler(AppError)

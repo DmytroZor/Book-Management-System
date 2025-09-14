@@ -39,10 +39,10 @@ class BookCreate(BookBase):
 
 
 class BookUpdate(BaseModel):
-    title: str | None = None
-    genre: Genre | None = None
-    published_year: int | None = None
-    authors: List[str] | None = None
+    title: str
+    genre: Genre
+    published_year: int
+    authors: List[str]
 
 
 class AuthorOut(BaseModel):
