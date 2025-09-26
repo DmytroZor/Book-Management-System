@@ -8,3 +8,4 @@ engine: AsyncEngine = create_async_engine(settings.database_url, future=True, ec
 async def get_conn():
     async with engine.connect() as conn:
         yield conn
+

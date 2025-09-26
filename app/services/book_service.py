@@ -4,9 +4,9 @@ from typing import List, Optional
 from app.errors import AppError
 from fastapi import status
 import datetime
+from app.schemas.book_schema import SortField, SortOrder
 
-_ALLOWED_SORT_FIELDS = {"title", "published_year"}
-_ALLOWED_ORDERS = {"asc", "desc"}
+
 
 
 async def _ensure_author_and_get_id(conn: AsyncConnection, name: str) -> int:
@@ -103,8 +103,10 @@ async def get_books(
     limit: int = 10,
     offset: int = 0,
 ):
-    sort_by = sort_by if sort_by in _ALLOWED_SORT_FIELDS else "title"
-    order = order if order in _ALLOWED_ORDERS else "asc"
+    allowed_sort_fields = SortField
+    allowed_orders = SortOrder
+    sort_by = sort_by if sort_by in allowed_sort_fields else "title"
+    order = order if order in allowed_orders else "asc"
     clauses = []
     params = {}
     if title:

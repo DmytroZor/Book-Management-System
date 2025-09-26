@@ -30,17 +30,17 @@ async def register(user: UserCreate, conn: AsyncConnection = Depends(get_conn)):
     return {"access_token": token, "token_type": "bearer"}
 
 
-@router.post(
-    "/login",
-    response_model=Token,
-    responses=get_common_responses()
-)
-async def login(form_data: OAuth2PasswordRequestForm = Depends(), conn: AsyncConnection = Depends(get_conn)):
-    user = await auth_service.get_user_by_username(conn, form_data.username)
-    if not user or not auth_service.verify_password(form_data.password, user["hashed_password"]):
-        raise UnauthorizedError()
-    token = auth_service.create_access_token({"sub": user["username"]})
-    return {"access_token": token, "token_type": "bearer"}
+# @router.post(
+#     "/login",
+#     response_model=Token,
+#     responses=get_common_responses()
+# )
+# async def login(form_data: OAuth2PasswordRequestForm = Depends(), conn: AsyncConnection = Depends(get_conn)):
+#     user = await auth_service.get_user_by_username(conn, form_data.username)
+#     if not user or not auth_service.verify_password(form_data.password, user["hashed_password"]):
+#         raise UnauthorizedError()
+#     token = auth_service.create_access_token({"sub": user["username"]})
+#     return {"access_token": token, "token_type": "bearer"}
 
 
 async def get_current_user(token: str = Depends(oauth2_scheme), conn: AsyncConnection = Depends(get_conn)):
